@@ -96,11 +96,9 @@ def _group_tasks_by_name_and_status(set_tasks):
     for status, task_dict in set_tasks.items():
         group_tasks[status] = {}
         for task in task_dict:
-            if task.task_family in group_tasks[status]:
-                group_tasks[status][task.task_family].append(task)
-            else:
+            if task.task_family not in group_tasks[status]:
                 group_tasks[status][task.task_family] = []
-                group_tasks[status][task.task_family].append(task)
+            group_tasks[status][task.task_family].append(task)
     return group_tasks
 
 
@@ -109,21 +107,88 @@ def _get_str(task_dict, count):
     for task_family, tasks in task_dict.items():
         row = '    '
         if count > 3:
-            row += '    '
+            row = '{0}    '.format(row)
         if len(lines) >= 5:
-            row += '...'
+            row = '{0}...'.format(row)
             lines.append(row)
             break
-        if len(tasks[0].get_params()) == 1:
-            row += "- " + str(len(tasks)) + " " + str(task_family) + "(" + tasks[0].get_params()[0][0] + "="
-            row += _get_str_one_parameter(tasks)
+        if len((tasks[0].get_params())) == 1:
+            attributes = sorted({getattr(task, tasks[0].get_params()[0][0]) for task in tasks})
+            row = '{0}- {1} {2}({3}='.format(row, len(tasks), task_family, tasks[0].get_params()[0][0])
+            if _ranging_attributes(attributes) and len(attributes) > 3:
+                row = '{0}{1}...{2}'.format(row, attributes[0], attributes[len(attributes) - 1])
+            else:
+                row = '{0}{1}'.format(row, _get_str_one_parameter(tasks))
             row += ")"
         elif len(tasks[0].get_params()) == 0:
-            row += "- " + str(len(tasks)) + " " + str(task_family) + "()"
+            row = '{0}- {1} {2}() '.format(row, len(tasks), str(task_family))
         else:
-            row += "- " + str(tasks[0]) + " and " + str(len(tasks) - 1) + " other " + str(task_family)
+            ranging = False
+            params = _get_set_of_params(tasks)
+            if _only_one_unique_param(params):
+                unique_param = _get_unique_param(params)
+                attributes = sorted(params[unique_param])
+                if _ranging_attributes(attributes) and len(attributes) > 2:
+                    ranging = True
+                    row = '{0}- {1}({2}'.format(row, task_family, _get_str_ranging_multiple_parameters(attributes, tasks, unique_param))
+            if not ranging:
+                if len(tasks) == 1:
+                    row = '{0}- {1} {2}'.format(row, len(tasks), tasks[0])
+                if len(tasks) == 2:
+                    row = '{0}- {1} and {2}'.format(row, tasks[0], tasks[1])
+                if len(tasks) > 2:
+                    row = '{0}- {1} and {2} other {3}'.format(row, tasks[0], len(tasks) - 1, task_family)
         lines.append(row)
     return '\n'.join(lines)
+
+
+def _get_str_ranging_multiple_parameters(attributes, tasks, unique_param):
+    row = ''
+    str_unique_param = '{0}...{1}'.format(attributes[0], attributes[len(attributes) - 1])
+    for param in tasks[0].get_params():
+        row = '{0}{1}='.format(row, param[0])
+        if param[0] == unique_param[0]:
+            row = '{0}{1}'.format(row, str_unique_param)
+        else:
+            row = '{0}{1}'.format(row, getattr(tasks[0], param[0]))
+        if param != tasks[0].get_params()[len(tasks[0].get_params()) - 1]:
+            row = "{0} ".format(row)
+    row = '{0})'.format(row)
+    return row
+
+
+def _get_set_of_params(tasks):
+    params = {}
+    for param in tasks[0].get_params():
+        params[param] = {getattr(task, param[0]) for task in tasks}
+    return params
+
+
+def _only_one_unique_param(params):
+    len_params = len(params)
+    different = [1 for param in params if len(params[param]) == 1]
+    len_different = len(different)
+    if len_params - len_different == 1:
+        return True
+    else:
+        return False
+
+
+def _get_unique_param(params):
+    for param in params:
+        if len(params[param]) > 1:
+            return param
+
+
+def _ranging_attributes(attributes):
+    ranging = False
+    if len(attributes) > 2:
+        ranging = True
+        difference = attributes[1] - attributes[0]
+        for i in range(1, len(attributes)):
+            if attributes[i] - attributes[i - 1] != difference:
+                ranging = False
+    return ranging
 
 
 def _get_str_one_parameter(tasks):
@@ -131,11 +196,11 @@ def _get_str_one_parameter(tasks):
     count = 0
     for task in tasks:
         if len(row) >= 30 and count > 1:
-            row += "..."
+            row = '{0}...'.format(row)
             break
-        row += _serialize_first_param(task)
+        row = '{0}{1}'.format(row, getattr(task, task.get_params()[0][0]))
         if count < len(tasks) - 1:
-            row += ","
+            row = '{0},'.format(row)
         count += 1
     return row
 
@@ -158,28 +223,28 @@ def _get_comments(group_tasks):
         if _get_number_of_tasks(task_dict) == 0:
             comments.pop(status)
     if "already_done" in comments:
-        comments["already_done"] += " were already done:\n"
+        comments["already_done"] = '{0} were already done:\n'.format(comments['already_done'])
     if "completed" in comments:
-        comments["completed"] += " ran successfully:\n"
+        comments["completed"] = '{0} ran successfully:\n'.format(comments['completed'])
     if "failed" in comments:
-        comments["failed"] += " failed:\n"
+        comments["failed"] =  '{0} failed:\n'.format(comments['failed'])
     still_pending = False
     if "still_pending_ext" in comments:
-        comments["still_pending_ext"] = "    " + comments["still_pending_ext"] + " were external dependencies:\n"
+        comments["still_pending_ext"] = '    {0} were external dependencies:\n'.format(comments['still_pending_ext'])
         still_pending = True
     if "upstream_run_by_other_worker" in comments:
-        comments["upstream_run_by_other_worker"] = "    " + comments["upstream_run_by_other_worker"] + " had dependencies that were being run by other worker:\n"
+        comments["upstream_run_by_other_worker"] = '    {0} had dependencies that were being run by other worker:\n'.format(comments['upstream_run_by_other_worker'])
     if "upstream_failure" in comments:
-        comments["upstream_failure"] = "    " + comments["upstream_failure"] + " had failed dependencies:\n"
+        comments["upstream_failure"] = '    {0} had failed dependencies:\n'.format(comments['upstream_failure'])
         still_pending = True
     if "upstream_missing_dependency" in comments:
-        comments["upstream_missing_dependency"] = "    " + comments["upstream_missing_dependency"] + " had missing dependencies:\n"
+        comments["upstream_missing_dependency"] = '    {0} had missing dependencies:\n'.format(comments['upstream_missing_dependency'])
         still_pending = True
     if "run_by_other_worker" in comments:
-        comments["run_by_other_worker"] = "    " + comments["run_by_other_worker"] + " were being run by another worker:\n"
+        comments["run_by_other_worker"] = '    {0} were being run by another worker:\n'.format(comments['run_by_other_worker'])
         still_pending = True
     if still_pending:
-        comments["still_pending"] = "* " + str(_get_number_of_tasks(group_tasks["still_pending_ext"]) + _get_number_of_tasks(group_tasks["still_pending_not_ext"])) + " were left pending:\n"
+        comments["still_pending"] = '* {0} were left pending:\n'.format(_get_number_of_tasks(group_tasks["still_pending_ext"]) + _get_number_of_tasks(group_tasks["still_pending_not_ext"]))
     return comments
 
 
@@ -201,15 +266,15 @@ def _summary_format(set_tasks):
     comments = _get_comments(group_tasks)
     statuses = _get_statuses()
     num_all_tasks = len(set_tasks["already_done"]) + len(set_tasks["completed"]) + len(set_tasks["failed"]) + len(set_tasks["still_pending_ext"]) + len(set_tasks["still_pending_not_ext"])
-    str_output = 'Scheduled ' + str(num_all_tasks) + " tasks of which:\n"
+    str_output = 'Scheduled {0} tasks of which:\n'.format(num_all_tasks)
     for i in range(len(statuses)):
         if statuses[i] not in comments:
             continue
         str_output += comments[statuses[i]]
         if i != 3:
-            str_output += _get_str(group_tasks[statuses[i]], i) + '\n'
+            str_output = '{0}{1}\n'.format(str_output, _get_str(group_tasks[statuses[i]], i))
     if num_all_tasks == len(set_tasks["already_done"]) + len(set_tasks["still_pending_ext"]) + len(set_tasks["still_pending_not_ext"]):
-        str_output = "Did not run any tasks\n"
+        str_output += "Did not run any tasks\n"
     if num_all_tasks == 0:
         str_output = 'Did not schedule any tasks\n'
     return str_output
