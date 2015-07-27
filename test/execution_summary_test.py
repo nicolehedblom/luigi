@@ -137,8 +137,8 @@ class ExecutionSummaryTest(LuigiTestCase):
 
             def run(self):
                 lock2.release()
-                self.comp = True
                 lock1.acquire()
+                self.comp = True
 
         lock1.acquire()
         lock2.acquire()
@@ -273,3 +273,107 @@ class ExecutionSummaryTest(LuigiTestCase):
         self.assertIn('Scheduled 11 tasks', s)
         self.assertIn('Luigi Execution Summary', s)
         self.assertNotIn('00:00:00', s)
+
+    def test_with_minutes(self):
+
+        start = datetime.datetime(1998, 3, 23, 1, 50)
+
+        class Bar(luigi.Task):
+            time = luigi.DateMinuteParameter()
+
+            def __init__(self, *args, **kwargs):
+                super(Bar, self).__init__(*args, **kwargs)
+                self.comp = False
+
+            def run(self):
+                self.comp = True
+
+            def complete(self):
+                return self.comp
+
+        class Foo(luigi.Task):
+
+            def run(self):
+                pass
+
+            def requires(self):
+                for i in range(300):
+                    new_time = start + datetime.timedelta(minutes=i)
+                    yield Bar(time=new_time)
+
+        self.run_task(Foo())
+        d = self.summary_dict()
+        exp_set = {Bar(start + datetime.timedelta(minutes=i)) for i in range(300)}
+        exp_set.add(Foo())
+        self.assertEqual(exp_set, d['completed'])
+        s = self.summary()
+        self.assertIn('Bar(time=1998-03-23T01H50...1998-03-23T06H49)', s)
+
+    def test_with_ranges_one_param(self):
+
+        class Bar(luigi.Task):
+            num = luigi.IntParameter()
+
+            def __init__(self, *args, **kwargs):
+                super(Bar, self).__init__(*args, **kwargs)
+                self.comp = False
+
+            def run(self):
+                self.comp = True
+
+            def complete(self):
+                return self.comp
+
+        class Foo(luigi.Task):
+
+            def run(self):
+                pass
+
+            def requires(self):
+                for i in range(11):
+                    yield Bar(i)
+
+        self.run_task(Foo())
+        d = self.summary_dict()
+        exp_set = {Bar(i) for i in range(11)}
+        exp_set.add(Foo())
+        self.assertEqual(exp_set, d['completed'])
+        s = self.summary()
+        self.assertIn('Bar(num=0...10)', s)
+
+    def test_with_ranges_multiple_params(self):
+
+        class Bar(luigi.Task):
+            num1 = luigi.IntParameter()
+            num2 = luigi.IntParameter()
+            num3 = luigi.IntParameter()
+
+            def __init__(self, *args, **kwargs):
+                super(Bar, self).__init__(*args, **kwargs)
+                self.comp = False
+
+            def run(self):
+                self.comp = True
+
+            def complete(self):
+                return self.comp
+
+        class Foo(luigi.Task):
+
+            def run(self):
+                pass
+
+            def requires(self):
+                for i in range(5):
+                    yield Bar(5, i, 25)
+
+        self.run_task(Foo())
+        d = self.summary_dict()
+        exp_set = {Bar(5, i, 25) for i in range(5)}
+        exp_set.add(Foo())
+        self.assertEqual(exp_set, d['completed'])
+        s = self.summary()
+        self.assertIn('Bar(num1=5, num2=0...4, num3=25', s)
+        self.assertIn('num2=0...4', s)
+        self.assertIn('num3=25', s)
+        self.assertIn('num1=5', s)

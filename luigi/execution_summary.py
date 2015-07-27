@@ -46,6 +46,7 @@ an execution summary at the end of luigi invocations. For example:
 """
 
 import textwrap
+import datetime
 
 
 def _partition_tasks(worker):
@@ -116,7 +117,7 @@ def _get_str(task_dict, count):
             attributes = sorted({getattr(task, tasks[0].get_params()[0][0]) for task in tasks})
             row = '{0}- {1} {2}({3}='.format(row, len(tasks), task_family, tasks[0].get_params()[0][0])
             if _ranging_attributes(attributes) and len(attributes) > 3:
-                row = '{0}{1}...{2}'.format(row, attributes[0], attributes[len(attributes) - 1])
+                row = '{0}{1}...{2}'.format(row, tasks[0].get_params()[0][1].serialize(attributes[0]), tasks[0].get_params()[0][1].serialize(attributes[len(attributes) - 1]))
             else:
                 row = '{0}{1}'.format(row, _get_str_one_parameter(tasks))
             row += ")"
@@ -144,7 +145,7 @@ def _get_str(task_dict, count):
 
 def _get_str_ranging_multiple_parameters(attributes, tasks, unique_param):
     row = ''
-    str_unique_param = '{0}...{1}'.format(attributes[0], attributes[len(attributes) - 1])
+    str_unique_param = '{0}...{1}'.format(unique_param[1].serialize(attributes[0]), unique_param[1].serialize(attributes[len(attributes) - 1]))
     for param in tasks[0].get_params():
         row = '{0}{1}='.format(row, param[0])
         if param[0] == unique_param[0]:
@@ -152,7 +153,7 @@ def _get_str_ranging_multiple_parameters(attributes, tasks, unique_param):
         else:
             row = '{0}{1}'.format(row, getattr(tasks[0], param[0]))
         if param != tasks[0].get_params()[len(tasks[0].get_params()) - 1]:
-            row = "{0} ".format(row)
+            row = "{0}, ".format(row)
     row = '{0})'.format(row)
     return row
 
@@ -182,13 +183,21 @@ def _get_unique_param(params):
 
 def _ranging_attributes(attributes):
     ranging = False
-    if len(attributes) > 2:
+    if len(attributes) > 2 and _is_of_enumerable_type(attributes[0]):
         ranging = True
         difference = attributes[1] - attributes[0]
         for i in range(1, len(attributes)):
             if attributes[i] - attributes[i - 1] != difference:
                 ranging = False
+                break
     return ranging
+
+
+def _is_of_enumerable_type(value):
+    if type(value) == int or type(value) == datetime.datetime or type(value) == datetime.date:
+        return True
+    else:
+        return False
 
 
 def _get_str_one_parameter(tasks):
@@ -227,7 +236,7 @@ def _get_comments(group_tasks):
     if "completed" in comments:
         comments["completed"] = '{0} ran successfully:\n'.format(comments['completed'])
     if "failed" in comments:
-        comments["failed"] =  '{0} failed:\n'.format(comments['failed'])
+        comments["failed"] = '{0} failed:\n'.format(comments['failed'])
     still_pending = False
     if "still_pending_ext" in comments:
         comments["still_pending_ext"] = '    {0} were external dependencies:\n'.format(comments['still_pending_ext'])
@@ -270,11 +279,11 @@ def _summary_format(set_tasks):
     for i in range(len(statuses)):
         if statuses[i] not in comments:
             continue
-        str_output += comments[statuses[i]]
+        str_output = '{0}{1}'.format(str_output, comments[statuses[i]])
         if i != 3:
             str_output = '{0}{1}\n'.format(str_output, _get_str(group_tasks[statuses[i]], i))
     if num_all_tasks == len(set_tasks["already_done"]) + len(set_tasks["still_pending_ext"]) + len(set_tasks["still_pending_not_ext"]):
-        str_output += "Did not run any tasks\n"
+        str_output = '{0}Did not run any tasks\n'.format(str_output)
     if num_all_tasks == 0:
         str_output = 'Did not schedule any tasks\n'
     return str_output
