@@ -317,6 +317,7 @@ class Worker(object):
 
         # Stuff for execution_summary
         self._add_task_history = []
+        self._get_work_response_history = []
 
     def _add_task(self, *args, **kwargs):
         """
@@ -542,6 +543,11 @@ class Worker(object):
         task_id = r['task_id']
         running_tasks = r['running_tasks']
         n_unique_pending = r['n_unique_pending']
+
+        self._get_work_response_history.append(dict(
+            task_id=task_id,
+            running_tasks=running_tasks,
+            ))
 
         if task_id is not None and task_id not in self._scheduled_tasks:
             logger.info('Did not schedule %s, will load it dynamically', task_id)

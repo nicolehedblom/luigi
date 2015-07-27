@@ -137,12 +137,12 @@ class ExecutionSummaryTest(LuigiTestCase):
 
             def run(self):
                 lock2.release()
-                self.comp = True
                 lock1.acquire()
+                self.comp = True
 
         lock1.acquire()
         lock2.acquire()
-        other_worker = luigi.worker.Worker(scheduler=self.scheduler, worker_id="other_worker")
+        other_worker = luigi.worker.Worker(scheduler=self.scheduler, worker_id="my_other_worker")
         other_worker.add(ParentTask())
         t1 = threading.Thread(target=other_worker.run)
         t1.start()
@@ -153,6 +153,7 @@ class ExecutionSummaryTest(LuigiTestCase):
         d = self.summary_dict()
         self.assertEqual({LockTask()}, d['run_by_other_worker'])
         self.assertEqual({ParentTask()}, d['upstream_run_by_other_worker'])
+        self.assertIn("my_other_worker", self.summary())
 
     def test_larger_tree(self):
 

@@ -195,7 +195,7 @@ def _summary_dict(worker):
     return set_tasks
 
 
-def _summary_format(set_tasks):
+def _summary_format(set_tasks, worker):
     group_tasks = _group_tasks_by_name_and_status(set_tasks)
     str_tasks = {}
     comments = _get_comments(group_tasks)
@@ -210,6 +210,25 @@ def _summary_format(set_tasks):
             str_output += _get_str(group_tasks[statuses[i]], i) + '\n'
     if num_all_tasks == len(set_tasks["already_done"]) + len(set_tasks["still_pending_ext"]) + len(set_tasks["still_pending_not_ext"]):
         str_output = "Did not run any tasks\n"
+    if num_all_tasks == 0:
+        str_output = 'Did not schedule any tasks\n'
+
+    # TODO(nicolehedblom): Clean up this mess Arash created :)
+    worker_that_blocked_task = dict()
+    get_work_response_history = worker._get_work_response_history
+    for get_work_response in get_work_response_history:
+        if get_work_response['task_id'] is None:
+            for running_task in get_work_response['running_tasks']:
+                other_worker_id = running_task['worker']
+                other_task_id = running_task['task_id']
+                other_task = worker._scheduled_tasks.get(other_task_id)
+                if other_task:
+                    worker_that_blocked_task[other_task] = other_worker_id
+
+    already_running_tasks_with_reasons = set_tasks['run_by_other_worker'].intersection(worker_that_blocked_task.keys())
+    for task in already_running_tasks_with_reasons:
+        str_output += 'Task {} was blocked by {}\n'.format(str(task), worker_that_blocked_task[task])
+
     if num_all_tasks == 0:
         str_output = 'Did not schedule any tasks\n'
     return str_output
@@ -229,4 +248,4 @@ def summary(worker):
     Given a worker, return a human readable string describing roughly what the
     workers have done.
     """
-    return _summary_wrap(_summary_format(_summary_dict(worker)))
+    return _summary_wrap(_summary_format(_summary_dict(worker), worker))
