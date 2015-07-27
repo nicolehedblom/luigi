@@ -103,11 +103,11 @@ def _group_tasks_by_name_and_status(set_tasks):
     return group_tasks
 
 
-def _get_str(task_dict, count):
+def _get_str(task_dict, extra_indent):
     lines = []
     for task_family, tasks in task_dict.items():
         row = '    '
-        if count > 3:
+        if extra_indent:
             row = '{0}    '.format(row)
         if len(lines) >= 5:
             row = '{0}...'.format(row)
@@ -280,8 +280,8 @@ def _summary_format(set_tasks):
         if statuses[i] not in comments:
             continue
         str_output = '{0}{1}'.format(str_output, comments[statuses[i]])
-        if i != 3:
-            str_output = '{0}{1}\n'.format(str_output, _get_str(group_tasks[statuses[i]], i))
+        if statuses[i] != 'still_pending':
+            str_output = '{0}{1}\n'.format(str_output, _get_str(group_tasks[statuses[i]], i>3))
     if num_all_tasks == len(set_tasks["already_done"]) + len(set_tasks["still_pending_ext"]) + len(set_tasks["still_pending_not_ext"]):
         str_output = '{0}Did not run any tasks\n'.format(str_output)
     if num_all_tasks == 0:
