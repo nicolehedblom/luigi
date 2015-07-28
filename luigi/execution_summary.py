@@ -28,10 +28,9 @@ an execution summary at the end of luigi invocations. For example:
             INFO: Worker Worker(salt=843361665, workers=1, host=arash-spotify-T440s, username=arash, pid=18534) was stopped. Shutting down Keep-Alive thread
             INFO:
             ===== Luigi Execution Summary =====
-
             Scheduled 210 tasks of which:
             * 195 were already done:
-                - 195 examples.Bar(num=5...199)
+                - 195 examples.Bar(num=119,42,144,121,160,135,151,89,...)
             * 1 ran successfully:
                 - 1 examples.Boom(num=0)
             * 14 were left pending:
@@ -39,9 +38,8 @@ an execution summary at the end of luigi invocations. For example:
                     - 1 MyExternal()
                 * 13 had missing dependencies:
                     - 1 examples.EntryPoint()
-                    - 10 examples.Foo(num=100, num2=0...9)
+                    - examples.Foo(num=100, num2=4) and 9 other examples.Foo
                     - examples.DateTask(date=1998-03-23, num=1) and examples.DateTask(date=1998-03-23, num=0)
-
             ===== Luigi Execution Summary =====
 """
 
@@ -65,8 +63,8 @@ def _partition_tasks(worker):
     set_tasks["run_by_other_worker"] = set()
     set_tasks["upstream_failure"] = set()
     set_tasks["upstream_missing_dependency"] = set()
-    set_tasks["upstream_only_run_by_other_worker"] = set()
-    set_tasks["upstream_not_only_run_by_other_worker"] = set()
+    set_tasks["upstream_run_by_other_worker"] = set()
+    set_tasks["unknown_reason"] = set()
     return set_tasks
 
 
@@ -75,8 +73,7 @@ def _dfs(set_tasks, current_task):
         upstream_failure = False
         upstream_missing_dependency = False
         upstream_run_by_other_worker = False
-        upstream_not_only_run_by_other_worker = False
-        for task in current_task.requires():
+        for task in current_task._requires():
             _dfs(set_tasks, task)
             if task in set_tasks["failed"] or task in set_tasks["upstream_failure"]:
                 set_tasks["upstream_failure"].add(current_task)
@@ -84,30 +81,11 @@ def _dfs(set_tasks, current_task):
             if task in set_tasks["still_pending_ext"] or task in set_tasks["upstream_missing_dependency"]:
                 set_tasks["upstream_missing_dependency"].add(current_task)
                 upstream_missing_dependency = True
-            if task in set_tasks["run_by_other_worker"] or task in set_tasks["upstream_only_run_by_other_worker"]:
+            if task in set_tasks["run_by_other_worker"] or task in set_tasks["upstream_run_by_other_worker"]:
+                set_tasks["upstream_run_by_other_worker"].add(current_task)
                 upstream_run_by_other_worker = True
-            if task in set_tasks["upstream_not_only_run_by_other_worker"]:
-                upstream_not_only_run_by_other_worker = True
-        if not upstream_failure and not upstream_missing_dependency and upstream_run_by_other_worker:
-            set_tasks["upstream_only_run_by_other_worker"].add(current_task)
-        if ((upstream_failure or upstream_missing_dependency) and upstream_run_by_other_worker) or upstream_not_only_run_by_other_worker:
-            set_tasks["upstream_not_only_run_by_other_worker"].add(current_task)
         if not upstream_failure and not upstream_missing_dependency and not upstream_run_by_other_worker:
-            set_tasks["run_by_other_worker"].add(current_task)
-
-
-def _group_tasks_by_name_and_status(set_tasks):
-    """
-    Takes a dictionary with sets of tasks grouped by their status and returns a dictionary with dictionaries with an array of tasks grouped by their status and task name
-    """
-    group_tasks = {}
-    for status, task_dict in set_tasks.items():
-        group_tasks[status] = {}
-        for task in task_dict:
-            if task.task_family not in group_tasks[status]:
-                group_tasks[status][task.task_family] = []
-            group_tasks[status][task.task_family].append(task)
-    return group_tasks
+            set_tasks["unknown_reason"].add(current_task)
 
 
 def _get_str(task_dict, extra_indent):
@@ -129,7 +107,7 @@ def _get_str(task_dict, extra_indent):
                 row += '{0}'.format(_get_str_one_parameter(tasks))
             row += ")"
         elif len(tasks[0].get_params()) == 0:
-            row += '- {0} {1}()'.format(len(tasks), str(task_family))
+            row += '- {0} {1}() '.format(len(tasks), str(task_family))
         else:
             ranging = False
             params = _get_set_of_params(tasks)
@@ -243,10 +221,8 @@ def _get_comments(group_tasks):
     if "still_pending_ext" in comments:
         comments["still_pending_ext"] = '    {0} were external dependencies:\n'.format(comments['still_pending_ext'])
         still_pending = True
-    if "upstream_only_run_by_other_worker" in comments:
-        comments["upstream_only_run_by_other_worker"] = '    {0} had dependencies that were being run by other worker but no failed or missing dependencies:\n'.format(comments['upstream_only_run_by_other_worker'])
-    if "upstream_not_only_run_by_other_worker" in comments:
-        comments["upstream_only_run_by_other_worker"] = '    {0} had dependencies that were being run by other worker and failed or missing dependencies:\n'.format(comments['upstream_only_run_by_other_worker'])
+    if "upstream_run_by_other_worker" in comments:
+        comments["upstream_run_by_other_worker"] = '    {0} had dependencies that were being run by other worker:\n'.format(comments['upstream_run_by_other_worker'])
     if "upstream_failure" in comments:
         comments["upstream_failure"] = '    {0} had failed dependencies:\n'.format(comments['upstream_failure'])
         still_pending = True
@@ -256,26 +232,72 @@ def _get_comments(group_tasks):
     if "run_by_other_worker" in comments:
         comments["run_by_other_worker"] = '    {0} were being run by another worker:\n'.format(comments['run_by_other_worker'])
         still_pending = True
+    if "unknown_reason" in comments:
+        comments["unknown_reason"] = '    {0} were left pending because of unknown reason:\n'.format(comments["unknown_reason"])
+        still_pending = True
     if still_pending:
         comments["still_pending"] = '* {0} were left pending:\n'.format(_get_number_of_tasks(group_tasks["still_pending_ext"]) + _get_number_of_tasks(group_tasks["still_pending_not_ext"]))
     return comments
 
 
 def _get_statuses():
-    statuses = ["already_done", "completed", "failed", "still_pending", "still_pending_ext", "upstream_only_run_by_other_worker",
-                "upstream_not_only_run_by_other_worker", "upstream_failure", "upstream_missing_dependency", "run_by_other_worker"]
+    statuses = ["already_done", "completed", "failed", "still_pending", "still_pending_ext", "run_by_other_worker", "upstream_failure", "upstream_missing_dependency", "upstream_run_by_other_worker", "unknown_reason"]
     return statuses
+
+
+def _get_run_by_other_worker(worker):
+    worker_that_blocked_task = dict()
+    get_work_response_history = worker._get_work_response_history
+    for get_work_response in get_work_response_history:
+        if get_work_response['task_id'] is None:
+            for running_task in get_work_response['running_tasks']:
+                other_worker_id = running_task['worker']
+                other_task_id = running_task['task_id']
+                other_task = worker._scheduled_tasks.get(other_task_id)
+                if other_task:
+                    worker_that_blocked_task[other_task] = other_worker_id
+    return set(worker_that_blocked_task.keys())
+
+
+def _get_external_workers(worker):
+    worker_that_blocked_task = dict()
+    get_work_response_history = worker._get_work_response_history
+    for get_work_response in get_work_response_history:
+        if get_work_response['task_id'] is None:
+            for running_task in get_work_response['running_tasks']:
+                other_worker_id = running_task['worker']
+                other_task_id = running_task['task_id']
+                other_task = worker._scheduled_tasks.get(other_task_id)
+                if other_task:
+                    if len(worker_that_blocked_task[other_worker_id]) == 0:
+                        worker_that_blocked_task[other_worker_id] = set()
+                    worker_that_blocked_task[other_worker_id].add(other_task)
+    return worker_that_blocked_task
+
+def _group_tasks_by_name_and_status(task_dict):
+    """
+    Takes a dictionary with sets of tasks grouped by their status and returns a dictionary with dictionaries with an array of tasks grouped by their status and task name
+    """
+    group_status = {}
+    for task in task_dict:
+        if task.task_family not in group_status:
+            group_status[task.task_family] = []
+        group_status[task.task_family].append(task)
+    return group_status
 
 
 def _summary_dict(worker):
     set_tasks = _partition_tasks(worker)
+    set_tasks["run_by_other_worker"] = _get_run_by_other_worker(worker)
     for task in set_tasks["still_pending_not_ext"]:
         _dfs(set_tasks, task)
     return set_tasks
 
 
 def _summary_format(set_tasks, worker):
-    group_tasks = _group_tasks_by_name_and_status(set_tasks)
+    group_tasks = {}
+    for status, task_dict in set_tasks.items():
+        group_tasks[status] = _group_tasks_by_name_and_status(task_dict)
     str_tasks = {}
     comments = _get_comments(group_tasks)
     statuses = _get_statuses()
@@ -287,10 +309,30 @@ def _summary_format(set_tasks, worker):
         str_output += '{0}'.format(comments[statuses[i]])
         if statuses[i] != 'still_pending':
             str_output += '{0}\n'.format(_get_str(group_tasks[statuses[i]], i > 3))
+    ext_workers = _get_external_workers(worker)
+    group_tasks_ext_workers = {}
+    for ext_worker, task_dict in ext_workers:
+        group_tasks_ext_workers[ext_worker] = _group_tasks_by_name_and_status(task_dict)
+    if len(ext_workers) > 0:
+        str_output += "The external workers were:\n"
+        for ext_worker in ext_workers:
+            str_output += "    {0} ran:\n{1}".format(ext_worker, _get_str(group_tasks_ext_workers[ext_worker]), True)
     if num_all_tasks == len(set_tasks["already_done"]) + len(set_tasks["still_pending_ext"]) + len(set_tasks["still_pending_not_ext"]):
         str_output += 'Did not run any tasks\n'
+    smiley = ""
+    reason = ""
+    if len(set_tasks["failed"]):
+        smiley = ":("
+        reason = "there were failed tasks"
+    elif len(set_tasks["still_pending_ext"]):
+        smiley = ":|"
+        reason = "there were missing tasks"
+    else:
+        smiley = ":)"
+        reason = "there were no failed or missing tasks"
+    str_output += "\nThis progress looks {0} because {1}".format(smiley, reason)
     if num_all_tasks == 0:
-        str_output = 'Did not schedule any tasks\n'
+        str_output = 'Did not schedule any tasks'
     return str_output
 
 
@@ -299,6 +341,7 @@ def _summary_wrap(str_output):
     ===== Luigi Execution Summary =====
 
     {str_output}
+
     ===== Luigi Execution Summary =====
     """).format(str_output=str_output)
 

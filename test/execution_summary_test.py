@@ -152,7 +152,7 @@ class ExecutionSummaryTest(LuigiTestCase):
         t1.join()
         d = self.summary_dict()
         self.assertEqual({LockTask()}, d['run_by_other_worker'])
-        self.assertEqual({ParentTask()}, d['upstream_only_run_by_other_worker'])
+        self.assertEqual({ParentTask()}, d['upstream_run_by_other_worker'])
 
     def test_larger_tree(self):
 
