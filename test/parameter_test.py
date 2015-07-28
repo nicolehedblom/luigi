@@ -643,3 +643,23 @@ class OverrideEnvStuff(unittest.TestCase):
     def testOverrideSchedulerPort3(self):
         env_params = luigi.interface.core()
         self.assertEqual(env_params.scheduler_port, 6545)
+
+
+class TestNextInEnumerable(unittest.TestCase):
+
+    def test_some_cases(self):
+        self.assertEqual(6, luigi.IntParameter.next_in_enumeration(5))
+        self.assertEqual(datetime.date(2012, 2, 29),
+                         luigi.DateParameter.next_in_enumeration(datetime.date(2012, 2, 28)))
+        self.assertEqual(datetime.date(2013, 3, 1),
+                         luigi.DateParameter.next_in_enumeration(datetime.date(2013, 2, 28)))
+        self.assertEqual(None,
+                         luigi.MonthParameter.next_in_enumeration(datetime.date(2012, 4, 1)))
+        self.assertEqual(None,
+                         luigi.YearParameter.next_in_enumeration(datetime.date(2012, 4, 1)))
+        self.assertEqual(datetime.datetime(2012, 4, 1, 5),
+                         luigi.DateHourParameter.next_in_enumeration(datetime.datetime(2012, 4, 1, 4)))
+        self.assertEqual(datetime.datetime(2012, 4, 1, 5, 0),
+                         luigi.DateMinuteParameter.next_in_enumeration(datetime.datetime(2012, 4, 1, 4, 59)))
+        self.assertEqual(None,
+                         luigi.BoolParameter.next_in_enumeration(False))
