@@ -28,9 +28,10 @@ an execution summary at the end of luigi invocations. For example:
             INFO: Worker Worker(salt=843361665, workers=1, host=arash-spotify-T440s, username=arash, pid=18534) was stopped. Shutting down Keep-Alive thread
             INFO:
             ===== Luigi Execution Summary =====
+
             Scheduled 210 tasks of which:
             * 195 were already done:
-                - 195 examples.Bar(num=119,42,144,121,160,135,151,89,...)
+                - 195 examples.Bar(num=5...199)
             * 1 ran successfully:
                 - 1 examples.Boom(num=0)
             * 14 were left pending:
@@ -38,8 +39,9 @@ an execution summary at the end of luigi invocations. For example:
                     - 1 MyExternal()
                 * 13 had missing dependencies:
                     - 1 examples.EntryPoint()
-                    - examples.Foo(num=100, num2=4) and 9 other examples.Foo
+                    - 10 examples.Foo(num=100, num2=0...9)
                     - examples.DateTask(date=1998-03-23, num=1) and examples.DateTask(date=1998-03-23, num=0)
+
             ===== Luigi Execution Summary =====
 """
 
@@ -60,10 +62,11 @@ def _partition_tasks(worker):
     set_tasks["failed"] = {task for (task, status, ext) in task_history if status == 'FAILED'}
     set_tasks["still_pending_ext"] = {task for (task, status, ext) in task_history if status == 'PENDING' and task not in set_tasks["failed"] and task not in set_tasks["completed"] and not ext}
     set_tasks["still_pending_not_ext"] = {task for (task, status, ext) in task_history if status == 'PENDING' and task not in set_tasks["failed"] and task not in set_tasks["completed"] and ext}
+    set_tasks["run_by_other_worker"] = set()
     set_tasks["upstream_failure"] = set()
     set_tasks["upstream_missing_dependency"] = set()
-    set_tasks["upstream_run_by_other_worker"] = set()
-    set_tasks["run_by_other_worker"] = set()
+    set_tasks["upstream_only_run_by_other_worker"] = set()
+    set_tasks["upstream_not_only_run_by_other_worker"] = set()
     return set_tasks
 
 
@@ -72,6 +75,7 @@ def _dfs(set_tasks, current_task):
         upstream_failure = False
         upstream_missing_dependency = False
         upstream_run_by_other_worker = False
+        upstream_not_only_run_by_other_worker = False
         for task in current_task.requires():
             _dfs(set_tasks, task)
             if task in set_tasks["failed"] or task in set_tasks["upstream_failure"]:
@@ -80,9 +84,14 @@ def _dfs(set_tasks, current_task):
             if task in set_tasks["still_pending_ext"] or task in set_tasks["upstream_missing_dependency"]:
                 set_tasks["upstream_missing_dependency"].add(current_task)
                 upstream_missing_dependency = True
-            if task in set_tasks["run_by_other_worker"] or task in set_tasks["upstream_run_by_other_worker"]:
-                set_tasks["upstream_run_by_other_worker"].add(current_task)
+            if task in set_tasks["run_by_other_worker"] or task in set_tasks["upstream_only_run_by_other_worker"]:
                 upstream_run_by_other_worker = True
+            if task in set_tasks["upstream_not_only_run_by_other_worker"]:
+                upstream_not_only_run_by_other_worker = True
+        if not upstream_failure and not upstream_missing_dependency and upstream_run_by_other_worker:
+            set_tasks["upstream_only_run_by_other_worker"].add(current_task)
+        if ((upstream_failure or upstream_missing_dependency) and upstream_run_by_other_worker) or upstream_not_only_run_by_other_worker:
+            set_tasks["upstream_not_only_run_by_other_worker"].add(current_task)
         if not upstream_failure and not upstream_missing_dependency and not upstream_run_by_other_worker:
             set_tasks["run_by_other_worker"].add(current_task)
 
@@ -120,7 +129,7 @@ def _get_str(task_dict, extra_indent):
                 row += '{0}'.format(_get_str_one_parameter(tasks))
             row += ")"
         elif len(tasks[0].get_params()) == 0:
-            row += '- {0} {1}() '.format(len(tasks), str(task_family))
+            row += '- {0} {1}()'.format(len(tasks), str(task_family))
         else:
             ranging = False
             params = _get_set_of_params(tasks)
@@ -234,8 +243,10 @@ def _get_comments(group_tasks):
     if "still_pending_ext" in comments:
         comments["still_pending_ext"] = '    {0} were external dependencies:\n'.format(comments['still_pending_ext'])
         still_pending = True
-    if "upstream_run_by_other_worker" in comments:
-        comments["upstream_run_by_other_worker"] = '    {0} had dependencies that were being run by other worker:\n'.format(comments['upstream_run_by_other_worker'])
+    if "upstream_only_run_by_other_worker" in comments:
+        comments["upstream_only_run_by_other_worker"] = '    {0} had dependencies that were being run by other worker but no failed or missing dependencies:\n'.format(comments['upstream_only_run_by_other_worker'])
+    if "upstream_not_only_run_by_other_worker" in comments:
+        comments["upstream_only_run_by_other_worker"] = '    {0} had dependencies that were being run by other worker and failed or missing dependencies:\n'.format(comments['upstream_only_run_by_other_worker'])
     if "upstream_failure" in comments:
         comments["upstream_failure"] = '    {0} had failed dependencies:\n'.format(comments['upstream_failure'])
         still_pending = True
@@ -251,7 +262,8 @@ def _get_comments(group_tasks):
 
 
 def _get_statuses():
-    statuses = ["already_done", "completed", "failed", "still_pending", "still_pending_ext", "upstream_failure", "upstream_missing_dependency", "run_by_other_worker"]
+    statuses = ["already_done", "completed", "failed", "still_pending", "still_pending_ext", "upstream_only_run_by_other_worker",
+                "upstream_not_only_run_by_other_worker", "upstream_failure", "upstream_missing_dependency", "run_by_other_worker"]
     return statuses
 
 
