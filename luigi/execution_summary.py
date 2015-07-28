@@ -28,7 +28,6 @@ an execution summary at the end of luigi invocations. For example:
             INFO: Worker Worker(salt=843361665, workers=1, host=arash-spotify-T440s, username=arash, pid=18534) was stopped. Shutting down Keep-Alive thread
             INFO:
             ===== Luigi Execution Summary =====
-
             Scheduled 210 tasks of which:
             * 195 were already done:
                 - 195 examples.Bar(num=119,42,144,121,160,135,151,89,...)
@@ -40,8 +39,7 @@ an execution summary at the end of luigi invocations. For example:
                 * 13 had missing dependencies:
                     - 1 examples.EntryPoint()
                     - examples.Foo(num=100, num2=4) and 9 other examples.Foo
-                    - examples.DateTask(date=1998-03-23, num=1) and 1 other examples.DateTask
-
+                    - examples.DateTask(date=1998-03-23, num=1) and examples.DateTask(date=1998-03-23, num=0)
             ===== Luigi Execution Summary =====
 """
 
@@ -108,37 +106,37 @@ def _get_str(task_dict, extra_indent):
     for task_family, tasks in task_dict.items():
         row = '    '
         if extra_indent:
-            row = '{0}    '.format(row)
+            row += '    '
         if len(lines) >= 5:
-            row = '{0}...'.format(row)
+            row += '...'
             lines.append(row)
             break
         if len((tasks[0].get_params())) == 1:
             attributes = sorted({getattr(task, tasks[0].get_params()[0][0]) for task in tasks})
-            row = '{0}- {1} {2}({3}='.format(row, len(tasks), task_family, tasks[0].get_params()[0][0])
-            if _ranging_attributes(attributes) and len(attributes) > 3:
-                row = '{0}{1}...{2}'.format(row, tasks[0].get_params()[0][1].serialize(attributes[0]), tasks[0].get_params()[0][1].serialize(attributes[len(attributes) - 1]))
+            row += '- {0} {1}({2}='.format(len(tasks), task_family, tasks[0].get_params()[0][0])
+            if _ranging_attributes(attributes, tasks[0].get_params()[0]) and len(attributes) > 3:
+                row += '{0}...{1}'.format(tasks[0].get_params()[0][1].serialize(attributes[0]), tasks[0].get_params()[0][1].serialize(attributes[len(attributes) - 1]))
             else:
-                row = '{0}{1}'.format(row, _get_str_one_parameter(tasks))
+                row += '{0}'.format(_get_str_one_parameter(tasks))
             row += ")"
         elif len(tasks[0].get_params()) == 0:
-            row = '{0}- {1} {2}() '.format(row, len(tasks), str(task_family))
+            row += '- {0} {1}() '.format(len(tasks), str(task_family))
         else:
             ranging = False
             params = _get_set_of_params(tasks)
             if _only_one_unique_param(params):
                 unique_param = _get_unique_param(params)
                 attributes = sorted(params[unique_param])
-                if _ranging_attributes(attributes) and len(attributes) > 2:
+                if _ranging_attributes(attributes, unique_param) and len(attributes) > 2:
                     ranging = True
-                    row = '{0}- {1}({2}'.format(row, task_family, _get_str_ranging_multiple_parameters(attributes, tasks, unique_param))
+                    row += '- {0} {1}({2}'.format(len(tasks), task_family, _get_str_ranging_multiple_parameters(attributes, tasks, unique_param))
             if not ranging:
                 if len(tasks) == 1:
-                    row = '{0}- {1} {2}'.format(row, len(tasks), tasks[0])
+                    row += '- {0} {1}'.format(len(tasks), tasks[0])
                 if len(tasks) == 2:
-                    row = '{0}- {1} and {2}'.format(row, tasks[0], tasks[1])
+                    row += '- {0} and {1}'.format(tasks[0], tasks[1])
                 if len(tasks) > 2:
-                    row = '{0}- {1} and {2} other {3}'.format(row, tasks[0], len(tasks) - 1, task_family)
+                    row += '- {0} and {1} other {2}'.format(tasks[0], len(tasks) - 1, task_family)
         lines.append(row)
     return '\n'.join(lines)
 
@@ -147,14 +145,14 @@ def _get_str_ranging_multiple_parameters(attributes, tasks, unique_param):
     row = ''
     str_unique_param = '{0}...{1}'.format(unique_param[1].serialize(attributes[0]), unique_param[1].serialize(attributes[len(attributes) - 1]))
     for param in tasks[0].get_params():
-        row = '{0}{1}='.format(row, param[0])
+        row += '{0}='.format(param[0])
         if param[0] == unique_param[0]:
-            row = '{0}{1}'.format(row, str_unique_param)
+            row += '{0}'.format(str_unique_param)
         else:
-            row = '{0}{1}'.format(row, getattr(tasks[0], param[0]))
+            row += '{0}'.format(param[1].serialize(getattr(tasks[0], param[0])))
         if param != tasks[0].get_params()[len(tasks[0].get_params()) - 1]:
-            row = "{0}, ".format(row)
-    row = '{0})'.format(row)
+            row += ", "
+    row += ')'
     return row
 
 
@@ -181,23 +179,18 @@ def _get_unique_param(params):
             return param
 
 
-def _ranging_attributes(attributes):
+def _ranging_attributes(attributes, unique_param):
     ranging = False
-    if len(attributes) > 2 and _is_of_enumerable_type(attributes[0]):
+    if len(attributes) > 2:
         ranging = True
-        difference = attributes[1] - attributes[0]
-        for i in range(1, len(attributes)):
-            if attributes[i] - attributes[i - 1] != difference:
-                ranging = False
-                break
+        if unique_param[1].next_in_enumeration(attributes[0]) is None:
+            ranging = False
+        if ranging:
+            for i in range(1, len(attributes)):
+                if unique_param[1].next_in_enumeration(attributes[i - 1]) != attributes[i]:
+                    ranging = False
+                    break
     return ranging
-
-
-def _is_of_enumerable_type(value):
-    if type(value) == int or type(value) == datetime.datetime or type(value) == datetime.date:
-        return True
-    else:
-        return False
 
 
 def _get_str_one_parameter(tasks):
@@ -205,11 +198,11 @@ def _get_str_one_parameter(tasks):
     count = 0
     for task in tasks:
         if len(row) >= 30 and count > 1:
-            row = '{0}...'.format(row)
+            row += '...'
             break
-        row = '{0}{1}'.format(row, getattr(task, task.get_params()[0][0]))
+        row += '{0}'.format(getattr(task, task.get_params()[0][0]))
         if count < len(tasks) - 1:
-            row = '{0},'.format(row)
+            row += ','
         count += 1
     return row
 
@@ -232,11 +225,11 @@ def _get_comments(group_tasks):
         if _get_number_of_tasks(task_dict) == 0:
             comments.pop(status)
     if "already_done" in comments:
-        comments["already_done"] = '{0} were already done:\n'.format(comments['already_done'])
+        comments["already_done"] += ' were already done:\n'
     if "completed" in comments:
-        comments["completed"] = '{0} ran successfully:\n'.format(comments['completed'])
+        comments["completed"] += ' ran successfully:\n'
     if "failed" in comments:
-        comments["failed"] = '{0} failed:\n'.format(comments['failed'])
+        comments["failed"] += ' failed:\n'
     still_pending = False
     if "still_pending_ext" in comments:
         comments["still_pending_ext"] = '    {0} were external dependencies:\n'.format(comments['still_pending_ext'])
@@ -269,7 +262,7 @@ def _summary_dict(worker):
     return set_tasks
 
 
-def _summary_format(set_tasks):
+def _summary_format(set_tasks, worker):
     group_tasks = _group_tasks_by_name_and_status(set_tasks)
     str_tasks = {}
     comments = _get_comments(group_tasks)
@@ -279,11 +272,11 @@ def _summary_format(set_tasks):
     for i in range(len(statuses)):
         if statuses[i] not in comments:
             continue
-        str_output = '{0}{1}'.format(str_output, comments[statuses[i]])
+        str_output += '{0}'.format(comments[statuses[i]])
         if statuses[i] != 'still_pending':
-            str_output = '{0}{1}\n'.format(str_output, _get_str(group_tasks[statuses[i]], i>3))
+            str_output += '{0}\n'.format(_get_str(group_tasks[statuses[i]], i > 3))
     if num_all_tasks == len(set_tasks["already_done"]) + len(set_tasks["still_pending_ext"]) + len(set_tasks["still_pending_not_ext"]):
-        str_output = '{0}Did not run any tasks\n'.format(str_output)
+        str_output += 'Did not run any tasks\n'
     if num_all_tasks == 0:
         str_output = 'Did not schedule any tasks\n'
     return str_output
@@ -303,4 +296,4 @@ def summary(worker):
     Given a worker, return a human readable string describing roughly what the
     workers have done.
     """
-    return _summary_wrap(_summary_format(_summary_dict(worker)))
+    return _summary_wrap(_summary_format(_summary_dict(worker), worker))

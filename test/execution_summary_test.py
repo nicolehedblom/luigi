@@ -274,7 +274,7 @@ class ExecutionSummaryTest(LuigiTestCase):
         self.assertIn('Luigi Execution Summary', s)
         self.assertNotIn('00:00:00', s)
 
-    def test_with_minutes(self):
+    def test_with_ranges_minutes(self):
 
         start = datetime.datetime(1998, 3, 23, 1, 50)
 
