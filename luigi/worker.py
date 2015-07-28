@@ -547,7 +547,7 @@ class Worker(object):
         self._get_work_response_history.append(dict(
             task_id=task_id,
             running_tasks=running_tasks,
-            ))
+        ))
 
         if task_id is not None and task_id not in self._scheduled_tasks:
             logger.info('Did not schedule %s, will load it dynamically', task_id)
