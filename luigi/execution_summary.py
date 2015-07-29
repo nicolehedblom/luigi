@@ -214,7 +214,7 @@ def _get_number_of_tasks(task_dict):
 def _get_comments(group_tasks):
     comments = {}
     for status, task_dict in group_tasks.items():
-        comments[status] = "* " + str(_get_number_of_tasks(task_dict))
+        comments[status] = "* {0}".format(_get_number_of_tasks(task_dict))
         if _get_number_of_tasks(task_dict) == 0:
             comments.pop(status)
     if "already_done" in comments:
@@ -327,11 +327,13 @@ def _summary_format(set_tasks, worker):
         group_tasks_ext_workers[ext_worker] = _group_tasks_by_name_and_status(task_dict)
     if len(ext_workers) > 0:
         str_output += "\nThe external workers were:\n"
+        count = 0
         for ext_worker, task_dict in ext_workers.items():
+            if count > 3 and count < len(ext_workers):
+                str_output += "    and {0} other workers".format(len(ext_workers) - count)
+                break
             str_output += "    *{0} ran:\n{1}".format(ext_worker, _get_str(group_tasks_ext_workers[ext_worker], True))
-            print "\nEXT WORKER TASKS\n"
-            print group_tasks_ext_workers
-            print "\n"
+            count += 1
         str_output += '\n'
     smiley = ""
     reason = ""
