@@ -90,7 +90,7 @@ def _dfs(set_tasks, current_task, visited):
             if task in set_tasks["run_by_other_worker"] or task in set_tasks["upstream_run_by_other_worker"]:
                 set_tasks["upstream_run_by_other_worker"].add(current_task)
                 upstream_run_by_other_worker = True
-        if not upstream_failure and not upstream_missing_dependency and not upstream_run_by_other_worker:
+        if not upstream_failure and not upstream_missing_dependency and not upstream_run_by_other_worker and current_task not in set_tasks["run_by_other_worker"]:
             set_tasks["unknown_reason"].add(current_task)
 
 
@@ -328,7 +328,10 @@ def _summary_format(set_tasks, worker):
     if len(ext_workers) > 0:
         str_output += "\nThe external workers were:\n"
         for ext_worker, task_dict in ext_workers.items():
-            str_output += "    {0} ran:\n{1}".format(ext_worker, _get_str(group_tasks_ext_workers[ext_worker], True))
+            str_output += "    *{0} ran:\n{1}".format(ext_worker, _get_str(group_tasks_ext_workers[ext_worker], True))
+            print "\nEXT WORKER TASKS\n"
+            print group_tasks_ext_workers
+            print "\n"
         str_output += '\n'
     smiley = ""
     reason = ""
